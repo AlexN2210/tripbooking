@@ -96,6 +96,35 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fundingDateIso, setFundingDateIso] = useState<string | null>(null);
+
+  const toIsoDateLocal = (date: Date) => {
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const applyFundingDepartureDate = () => {
+    if (!fundingDateIso) return;
+
+    // If we already have a duration (end - start), keep it.
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+      if (Number.isFinite(diffDays) && diffDays >= 0) {
+        const newStart = new Date(fundingDateIso);
+        const newEnd = new Date(newStart);
+        newEnd.setDate(newEnd.getDate() + diffDays);
+        setStartDate(fundingDateIso);
+        setEndDate(toIsoDateLocal(newEnd));
+        return;
+      }
+    }
+
+    setStartDate(fundingDateIso);
+  };
 
   const addDestination = () => {
     setDestinations([
@@ -731,6 +760,21 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                 Planification
               </span>
             </div>
+            {fundingDateIso && (
+              <div className="mb-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
+                <p className="text-xs text-gray-700">
+                  Départ faisable estimé: <span className="font-bold">{new Date(fundingDateIso).toLocaleDateString('fr-FR')}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={applyFundingDepartureDate}
+                  className="px-3 py-2 rounded-full border border-white/55 bg-white/60 hover:bg-white/80 text-gray-900 text-xs font-semibold transition-all"
+                  title="Ajuster la date de départ selon votre épargne"
+                >
+                  Partir une fois financé
+                </button>
+              </div>
+            )}
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -832,6 +876,7 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                     totalCost={totalCost}
                     passengers={numPassengers}
                     departureDate={startDate}
+                    onFundingUpdate={(info) => setFundingDateIso(info.fundingDateIso)}
                   />
                 )}
               </div>

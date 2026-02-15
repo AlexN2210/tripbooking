@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Calendar, TrendingUp, BadgeCheck, PiggyBank } from 'lucide-react';
 
 function parseMoney(raw: string): number {
@@ -25,13 +25,29 @@ function addDays(date: Date, days: number) {
   return d;
 }
 
+function toIsoDateLocal(date: Date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 interface FundingPlannerProps {
   totalCost: number;
   passengers: number;
   departureDate: string; // YYYY-MM-DD
+  onFundingUpdate?: (info: {
+    monthlyPerPerson: number;
+    monthlyTotal: number;
+    requiredMonthlyPerPerson: number;
+    requiredMonthlyTotal: number;
+    monthsNeeded: number | null;
+    fundingDateIso: string | null;
+    feasibleBeforeDeparture: boolean;
+  }) => void;
 }
 
-export function FundingPlanner({ totalCost, passengers, departureDate }: FundingPlannerProps) {
+export function FundingPlanner({ totalCost, passengers, departureDate, onFundingUpdate }: FundingPlannerProps) {
   const [monthlyPerPersonInput, setMonthlyPerPersonInput] = useState('');
 
   const computed = useMemo(() => {
@@ -72,6 +88,32 @@ export function FundingPlanner({ totalCost, passengers, departureDate }: Funding
       departure,
     };
   }, [departureDate, monthlyPerPersonInput, passengers, totalCost]);
+
+  useEffect(() => {
+    if (!onFundingUpdate) return;
+    if (computed.invalidDate) {
+      onFundingUpdate({
+        monthlyPerPerson: 0,
+        monthlyTotal: 0,
+        requiredMonthlyPerPerson: 0,
+        requiredMonthlyTotal: 0,
+        monthsNeeded: null,
+        fundingDateIso: null,
+        feasibleBeforeDeparture: false,
+      });
+      return;
+    }
+
+    onFundingUpdate({
+      monthlyPerPerson: computed.monthlyPerPerson,
+      monthlyTotal: computed.monthlyTotal,
+      requiredMonthlyPerPerson: computed.requiredMonthlyPerPerson,
+      requiredMonthlyTotal: computed.requiredMonthlyTotal,
+      monthsNeeded: Number.isFinite(computed.monthsNeeded) ? computed.monthsNeeded : null,
+      fundingDateIso: computed.estimatedFundingDate ? toIsoDateLocal(computed.estimatedFundingDate) : null,
+      feasibleBeforeDeparture: computed.feasibleBeforeDeparture,
+    });
+  }, [computed, onFundingUpdate]);
 
   if (computed.invalidDate) {
     return (
