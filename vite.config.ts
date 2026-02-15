@@ -8,6 +8,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      devOptions: {
+        enabled: true,
+      },
       includeAssets: [
         'AppIcons (2)/android/mipmap-xxxhdpi/ic_launcher.png',
         'AppIcons (2)/Assets.xcassets/AppIcon.appiconset/_/180.png',
