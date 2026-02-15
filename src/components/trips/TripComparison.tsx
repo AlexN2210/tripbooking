@@ -59,6 +59,9 @@ export const TripComparison = ({ onBack }: TripComparisonProps) => {
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           monthsToTarget = Math.max(1, Math.ceil(diffDays / 30));
           monthlyAmount = totalCost / monthsToTarget;
+        } else if (trip.monthly_saving_total) {
+          monthlyAmount = trip.monthly_saving_total;
+          monthsToTarget = trip.funding_months_est ?? Math.max(1, Math.ceil(totalCost / trip.monthly_saving_total));
         }
 
         const score = calculateScore(totalCost, monthlyAmount, monthsToTarget);
@@ -222,7 +225,7 @@ export const TripComparison = ({ onBack }: TripComparisonProps) => {
                           <span className="text-gray-600">Coût total</span>
                           <span className="font-semibold text-gray-900">{totalCost.toFixed(2)} €</span>
                         </div>
-                        {(trip.start_date || trip.target_date) && (
+                        {(trip.start_date || trip.target_date || trip.monthly_saving_total) && (
                           <>
                             <div className="flex justify-between text-sm">
                               <span className="text-gray-600">Par mois</span>

@@ -93,10 +93,15 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
   const [additionalExpenses, setAdditionalExpenses] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [noDatesYet, setNoDatesYet] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [fundingDateIso, setFundingDateIso] = useState<string | null>(null);
+  const [fundingMonths, setFundingMonths] = useState<number | null>(null);
+  const [monthlySavingPerPerson, setMonthlySavingPerPerson] = useState<number | null>(null);
+  const [monthlySavingTotal, setMonthlySavingTotal] = useState<number | null>(null);
+  const [saveFundingMessage, setSaveFundingMessage] = useState<string | null>(null);
 
   const toIsoDateLocal = (date: Date) => {
     const yyyy = date.getFullYear();
@@ -322,6 +327,10 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
           additional_expenses: additional,
           start_date: startDate || null,
           end_date: endDate || null,
+          monthly_saving_per_person: monthlySavingPerPerson,
+          monthly_saving_total: monthlySavingTotal,
+          funding_months_est: fundingMonths,
+          funding_date_est: fundingDateIso || null,
           // Backward compatibility for older reads:
           target_date: startDate || null
         })
@@ -348,6 +357,12 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
       if (destError) throw destError;
 
       setSaved(true);
+      if ((noDatesYet || !startDate) && fundingMonths && monthlySavingPerPerson) {
+        setSaveFundingMessage(
+          `Voyage financé à 100% dans ~${fundingMonths} mois (si chacun met ${monthlySavingPerPerson.toFixed(0)} €/mois).`
+        );
+        setTimeout(() => setSaveFundingMessage(null), 6000);
+      }
       setTimeout(() => setSaved(false), 3000);
     } catch (error) {
       console.error('Error saving trip:', error);
@@ -761,6 +776,30 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                 Planification
               </span>
             </div>
+
+            <div className="mb-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
+              <p className="text-sm font-semibold text-gray-900">
+                {noDatesYet ? "Je n'ai pas encore de dates" : "J'ai mes dates"}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setNoDatesYet(v => {
+                    const next = !v;
+                    if (next) {
+                      setStartDate('');
+                      setEndDate('');
+                    }
+                    return next;
+                  });
+                }}
+                className="px-3 py-2 rounded-full border border-white/55 bg-white/60 hover:bg-white/80 text-gray-900 text-xs font-semibold transition-all"
+                title="Basculer avec/sans dates"
+              >
+                {noDatesYet ? 'Renseigner des dates' : 'Pas de dates'}
+              </button>
+            </div>
+
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -775,6 +814,7 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                   onChange={(e) => setStartDate(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
                   min={todayIsoDate()}
+                  disabled={noDatesYet}
                 />
                 {!validation.startDateOk && (
                   <p className="text-xs text-red-600 mt-1">
@@ -796,6 +836,7 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                   onChange={(e) => setEndDate(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
                   min={startDate || todayIsoDate()}
+                  disabled={noDatesYet}
                 />
                 {!validation.endDateOk && (
                   <p className="text-xs text-red-600 mt-1">
@@ -806,16 +847,27 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
             </div>
 
             {/* Module budget/financement au bon endroit (dates) */}
-            {startDate && totalCost > 0 && (
-              <div className="mt-5">
+            <div className="mt-5">
+              {totalCost > 0 ? (
                 <FundingPlanner
                   totalCost={totalCost}
                   passengers={numPassengers}
-                  departureDate={startDate}
-                  onFundingUpdate={(info) => setFundingDateIso(info.fundingDateIso)}
+                  departureDate={noDatesYet ? undefined : (startDate || undefined)}
+                  onFundingUpdate={(info) => {
+                    setFundingDateIso(info.fundingDateIso);
+                    setFundingMonths(info.monthsNeeded);
+                    setMonthlySavingPerPerson(info.monthlyPerPerson);
+                    setMonthlySavingTotal(info.monthlyTotal);
+                  }}
                 />
-              </div>
-            )}
+              ) : (
+                <div className="bg-white/60 rounded-xl border border-white/40 p-4">
+                  <p className="text-sm text-gray-700">
+                    Renseigne d’abord le <strong>budget</strong> (vol, hébergements, autres) pour simuler le financement.
+                  </p>
+                </div>
+              )}
+            </div>
 
             {fundingDateIso && (
               <div className="mt-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
@@ -850,6 +902,11 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
               )}
             </button>
           </div>
+          {saveFundingMessage && (
+            <div className="mt-3 bg-palm-50 border border-palm-200 rounded-xl p-3">
+              <p className="text-sm font-semibold text-palm-900">{saveFundingMessage}</p>
+            </div>
+          )}
         </div>
 
         <div className="xl:col-span-5">

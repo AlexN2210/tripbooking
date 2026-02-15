@@ -16,6 +16,10 @@ export interface Trip {
   target_date: string | null;
   start_date: string | null;
   end_date: string | null;
+  monthly_saving_per_person: number | null;
+  monthly_saving_total: number | null;
+  funding_months_est: number | null;
+  funding_date_est: string | null;
   created_at: string;
   updated_at: string;
 }
