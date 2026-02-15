@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Calculator, GitCompare, LogOut, Plane } from 'lucide-react';
+import { Calculator, GitCompare, LogOut, Plane, FolderOpen } from 'lucide-react';
 import { TripEstimation } from './trips/TripEstimation';
 import { TripComparison } from './trips/TripComparison';
+import { SavedTrips } from './trips/SavedTrips';
 
-type View = 'home' | 'estimation' | 'comparison';
+type View = 'home' | 'estimation' | 'comparison' | 'saved';
 
 export const Dashboard = () => {
   const { signOut } = useAuth();
   const [view, setView] = useState<View>('home');
   const [transition, setTransition] = useState<'animate-slideRight' | 'animate-slideLeft'>('animate-slideRight');
   const prevViewRef = useRef<View>('home');
+  const [editingTripId, setEditingTripId] = useState<string | null>(null);
 
   useEffect(() => {
-    const order: Record<View, number> = { home: 0, estimation: 1, comparison: 2 };
+    const order: Record<View, number> = { home: 0, saved: 1, estimation: 2, comparison: 3 };
     const prev = prevViewRef.current;
     setTransition(order[view] >= order[prev] ? 'animate-slideLeft' : 'animate-slideRight');
     prevViewRef.current = view;
@@ -139,7 +141,10 @@ export const Dashboard = () => {
 
               <div className="grid md:grid-cols-2 gap-6">
                 <button
-                  onClick={() => setView('estimation')}
+                  onClick={() => {
+                    setEditingTripId(null);
+                    setView('estimation');
+                  }}
                   className="group relative surface p-8 text-left transition-all transform hover:-translate-y-1 hover:shadow-2xl overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-sand-200 to-sand-300 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500 animate-float animate-shimmer"></div>
@@ -173,16 +178,50 @@ export const Dashboard = () => {
                     </p>
                   </div>
                 </button>
+
+                <button
+                  onClick={() => setView('saved')}
+                  className="group relative surface p-8 text-left transition-all transform hover:-translate-y-1 hover:shadow-2xl overflow-hidden"
+                >
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-lagoon-100 to-sand-100 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500 animate-float animate-shimmer"></div>
+                  <div className="relative z-10">
+                    <div className="w-14 h-14 bg-lagoon-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform glow-lagoon">
+                      <FolderOpen className="w-7 h-7 text-white" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                      Voyages sauvegardés
+                    </h3>
+                    <p className="text-gray-700 leading-relaxed">
+                      Retrouvez, modifiez ou supprimez vos voyages déjà enregistrés
+                    </p>
+                  </div>
+                </button>
               </div>
             </div>
           )}
 
           {view === 'estimation' && (
-            <TripEstimation onBack={() => setView('home')} />
+            <TripEstimation
+              onBack={() => {
+                setEditingTripId(null);
+                setView('home');
+              }}
+              tripId={editingTripId}
+            />
           )}
 
           {view === 'comparison' && (
             <TripComparison onBack={() => setView('home')} />
+          )}
+
+          {view === 'saved' && (
+            <SavedTrips
+              onBack={() => setView('home')}
+              onEditTrip={(tripId) => {
+                setEditingTripId(tripId);
+                setView('estimation');
+              }}
+            />
           )}
         </div>
       </div>

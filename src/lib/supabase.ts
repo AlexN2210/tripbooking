@@ -30,6 +30,9 @@ export interface TripDestination {
   country: string;
   city: string;
   order_index: number;
+  has_lodging?: boolean;
+  nights?: number | null;
+  price_per_night?: number | null;
   latitude: number | null;
   longitude: number | null;
   place_id: string | null;

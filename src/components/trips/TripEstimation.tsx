@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ArrowLeft, Plus, X, Plane, Hotel, Wallet, Calendar, Users, Save } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Plus, X, Plane, Hotel, Wallet, Calendar, Users, Save, MapPin } from 'lucide-react';
 import { TripMap } from './TripMap';
 import { ExpenseGauge } from './ExpenseGauge';
 import { supabase } from '../../lib/supabase';
@@ -66,10 +66,12 @@ interface Destination {
 
 interface TripEstimationProps {
   onBack: () => void;
+  tripId?: string | null;
 }
 
-export const TripEstimation = ({ onBack }: TripEstimationProps) => {
+export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) => {
   const { user } = useAuth();
+  const [loadingExisting, setLoadingExisting] = useState(false);
   const [tripName, setTripName] = useState('');
   const [lodgingMode, setLodgingMode] = useState<'per_step' | 'global'>('per_step');
   const [destinations, setDestinations] = useState<Destination[]>([
@@ -102,6 +104,96 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
   const [monthlySavingPerPerson, setMonthlySavingPerPerson] = useState<number | null>(null);
   const [monthlySavingTotal, setMonthlySavingTotal] = useState<number | null>(null);
   const [saveFundingMessage, setSaveFundingMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!tripId) return;
+    if (!user) return;
+
+    let cancelled = false;
+    const load = async () => {
+      setLoadingExisting(true);
+      setFormError(null);
+      try {
+        const { data: t, error: tErr } = await supabase
+          .from('trips')
+          .select('*')
+          .eq('id', tripId)
+          .eq('user_id', user.id)
+          .single();
+        if (tErr) throw tErr;
+
+        const { data: ds, error: dErr } = await supabase
+          .from('trip_destinations')
+          .select('*')
+          .eq('trip_id', tripId)
+          .order('order_index', { ascending: true });
+        if (dErr) throw dErr;
+
+        if (cancelled) return;
+
+        setTripName(String(t.name ?? ''));
+        setFlightCost(t.flight_cost != null ? String(t.flight_cost) : '');
+        setPassengers(t.passengers != null ? String(t.passengers) : '1');
+        setAccommodationCost(t.accommodation_cost != null ? String(t.accommodation_cost) : '');
+        setAdditionalExpenses(t.additional_expenses != null ? String(t.additional_expenses) : '');
+        setStartDate(t.start_date ?? t.target_date ?? '');
+        setEndDate(t.end_date ?? '');
+        setNoDatesYet(Boolean(!t.start_date && !t.target_date));
+
+        setMonthlySavingPerPerson(t.monthly_saving_per_person ?? null);
+        setMonthlySavingTotal(t.monthly_saving_total ?? null);
+        setFundingMonths(t.funding_months_est ?? null);
+        setFundingDateIso(t.funding_date_est ?? null);
+
+        const mapped: Destination[] =
+          Array.isArray(ds) && ds.length
+            ? ds.map((d: Record<string, unknown>) => ({
+                id: (d.id as string | undefined) ?? crypto.randomUUID(),
+                country: (d.country as string | undefined) ?? '',
+                city: (d.city as string | undefined) ?? '',
+                hasLodging: (d.has_lodging as boolean | undefined) ?? true,
+                nights: d.nights != null ? String(d.nights) : '',
+                pricePerNight: d.price_per_night != null ? String(d.price_per_night) : '',
+                latitude: (d.latitude as number | null | undefined) ?? null,
+                longitude: (d.longitude as number | null | undefined) ?? null,
+                place_id: (d.place_id as string | null | undefined) ?? null,
+                formatted_address: (d.formatted_address as string | null | undefined) ?? null,
+                geocoding: 'idle'
+              }))
+            : [
+                {
+                  id: crypto.randomUUID(),
+                  country: '',
+                  city: '',
+                  hasLodging: true,
+                  nights: '',
+                  pricePerNight: '',
+                  latitude: null,
+                  longitude: null,
+                  place_id: null,
+                  formatted_address: null,
+                  geocoding: 'idle'
+                }
+              ];
+
+        setDestinations(mapped);
+
+        // Si on a des détails étape, on conserve le mode "par étape", sinon on retombe en global.
+        const hasPerStepDetails = mapped.some((d) => d.hasLodging && (toPositiveInt(d.nights, 0) > 0 || parseMoney(d.pricePerNight) > 0));
+        setLodgingMode(hasPerStepDetails ? 'per_step' : 'global');
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setFormError("Impossible de charger ce voyage pour l’édition.");
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId, user]);
 
   const toIsoDateLocal = (date: Date) => {
     const yyyy = date.getFullYear();
@@ -316,33 +408,71 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
         destinationsWithGeo.push(base);
       }
 
-      const { data: trip, error: tripError } = await supabase
-        .from('trips')
-        .insert({
-          user_id: user.id,
-          name: tripName.trim(),
-          flight_cost: flight,
-          passengers: numPassengers,
-          accommodation_cost: accommodation,
-          additional_expenses: additional,
-          start_date: startDate || null,
-          end_date: endDate || null,
-          monthly_saving_per_person: monthlySavingPerPerson,
-          monthly_saving_total: monthlySavingTotal,
-          funding_months_est: fundingMonths,
-          funding_date_est: fundingDateIso || null,
-          // Backward compatibility for older reads:
-          target_date: startDate || null
-        })
-        .select()
-        .single();
+      let trip: { id: string };
 
-      if (tripError) throw tripError;
+      if (tripId) {
+        const { data: updated, error: updErr } = await supabase
+          .from('trips')
+          .update({
+            name: tripName.trim(),
+            flight_cost: flight,
+            passengers: numPassengers,
+            accommodation_cost: accommodation,
+            additional_expenses: additional,
+            start_date: startDate || null,
+            end_date: endDate || null,
+            monthly_saving_per_person: monthlySavingPerPerson,
+            monthly_saving_total: monthlySavingTotal,
+            funding_months_est: fundingMonths,
+            funding_date_est: fundingDateIso || null,
+            // Backward compatibility for older reads:
+            target_date: startDate || null
+          })
+          .eq('id', tripId)
+          .eq('user_id', user.id)
+          .select()
+          .single();
+        if (updErr) throw updErr;
+        trip = { id: updated.id };
+      } else {
+        const { data: created, error: tripError } = await supabase
+          .from('trips')
+          .insert({
+            user_id: user.id,
+            name: tripName.trim(),
+            flight_cost: flight,
+            passengers: numPassengers,
+            accommodation_cost: accommodation,
+            additional_expenses: additional,
+            start_date: startDate || null,
+            end_date: endDate || null,
+            monthly_saving_per_person: monthlySavingPerPerson,
+            monthly_saving_total: monthlySavingTotal,
+            funding_months_est: fundingMonths,
+            funding_date_est: fundingDateIso || null,
+            // Backward compatibility for older reads:
+            target_date: startDate || null
+          })
+          .select()
+          .single();
+
+        if (tripError) throw tripError;
+        trip = { id: created.id };
+      }
+
+      // Remplace les destinations quand on édite
+      if (tripId) {
+        const { error: delDestErr } = await supabase.from('trip_destinations').delete().eq('trip_id', trip.id);
+        if (delDestErr) throw delDestErr;
+      }
 
       const destinationsData = destinationsWithGeo.map((d, index) => ({
         trip_id: trip.id,
         country: d.country,
         city: d.city,
+        has_lodging: d.hasLodging,
+        nights: d.hasLodging ? toPositiveInt(d.nights, 0) : null,
+        price_per_night: d.hasLodging ? parseMoney(d.pricePerNight) : null,
         latitude: d.latitude,
         longitude: d.longitude,
         place_id: d.place_id,
@@ -383,6 +513,14 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
       </button>
 
       <div className="space-y-6">
+        {loadingExisting && (
+          <div className="surface p-4 flex items-center gap-3">
+            <WaveLoader label="Chargement" />
+            <p className="text-sm font-semibold text-gray-800">
+              Chargement du voyage…
+            </p>
+          </div>
+        )}
         <div className="surface p-6 sm:p-8 animate-slideUp">
           <div className="flex items-center space-x-3">
           <div className="w-12 h-12 bg-palm-700 rounded-xl flex items-center justify-center">
@@ -515,8 +653,8 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
 
             <div className="space-y-3">
               {destinations.map((dest, index) => (
-                <div key={dest.id} className="flex gap-3 items-start">
-                  <div className="flex-1 space-y-3 surface-soft p-4">
+                <div key={dest.id} className="flex gap-3 items-start min-w-0">
+                  <div className="flex-1 min-w-0 space-y-3 surface-soft p-4">
                     <div className="flex items-center justify-between">
                       <p className="text-sm font-bold text-gray-900">
                         Étape {index + 1}
@@ -605,13 +743,16 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                           !dest.city.trim() ||
                           !dest.country.trim()
                         }
-                        className="shrink-0 px-3 py-2 rounded-full border border-white/55 bg-white/55 hover:bg-white/75 text-gray-800 text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-palm-700 bg-palm-700 hover:bg-palm-800 text-white text-xs font-extrabold tracking-wide transition-all disabled:opacity-45 disabled:cursor-not-allowed"
                         title="Récupérer les coordonnées"
                       >
                         {dest.geocoding === 'loading' ? (
                           <WaveLoader className="scale-75" label="Localisation en cours" />
                         ) : (
-                          'Localiser'
+                          <>
+                            <MapPin className="w-4 h-4" />
+                            Localiser
+                          </>
                         )}
                       </button>
                     </div>
@@ -623,17 +764,24 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                             <Hotel className="w-4 h-4 text-gray-600" />
                             <p className="text-sm font-semibold text-gray-900">Logement sur cette étape ?</p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => updateDestination(dest.id, 'hasLodging', !dest.hasLodging)}
-                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                              dest.hasLodging
-                                ? 'bg-palm-700 text-white border-palm-700'
-                                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            {dest.hasLodging ? 'Oui' : 'Non'}
-                          </button>
+                          <div className="segmented shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => updateDestination(dest.id, 'hasLodging', true)}
+                              className={`seg-btn ${dest.hasLodging ? 'seg-btn-active' : ''}`}
+                              title="Avec logement"
+                            >
+                              Oui
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateDestination(dest.id, 'hasLodging', false)}
+                              className={`seg-btn ${!dest.hasLodging ? 'seg-btn-active' : ''}`}
+                              title="Sans logement"
+                            >
+                              Non
+                            </button>
+                          </div>
                         </div>
 
                         {dest.hasLodging && (
@@ -683,13 +831,28 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                   {destinations.length > 1 && (
                     <button
                       onClick={() => removeDestination(dest.id)}
-                      className="p-3 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      className="shrink-0 p-3 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                     >
                       <X className="w-5 h-5" />
                     </button>
                   )}
                 </div>
               ))}
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={addDestination}
+                className="w-full flex items-center justify-center gap-2 rounded-xl border border-white/50 bg-white/60 hover:bg-white/80 text-gray-900 font-semibold py-3 transition-all"
+                title="Ajouter une étape"
+              >
+                <Plus className="w-5 h-5" />
+                Ajouter une étape
+              </button>
+              <p className="text-xs text-gray-600 mt-2">
+                Astuce: ce bouton reste tout en bas pour ajouter rapidement une étape, même quand la liste est longue.
+              </p>
             </div>
           </div>
 
@@ -779,25 +942,30 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
 
             <div className="mb-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
               <p className="text-sm font-semibold text-gray-900">
-                {noDatesYet ? "Je n'ai pas encore de dates" : "J'ai mes dates"}
+                Planification
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setNoDatesYet(v => {
-                    const next = !v;
-                    if (next) {
-                      setStartDate('');
-                      setEndDate('');
-                    }
-                    return next;
-                  });
-                }}
-                className="px-3 py-2 rounded-full border border-white/55 bg-white/60 hover:bg-white/80 text-gray-900 text-xs font-semibold transition-all"
-                title="Basculer avec/sans dates"
-              >
-                {noDatesYet ? 'Renseigner des dates' : 'Pas de dates'}
-              </button>
+              <div className="segmented shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setNoDatesYet(false)}
+                  className={`seg-btn ${!noDatesYet ? 'seg-btn-active' : ''}`}
+                  title="J’ai mes dates"
+                >
+                  J’ai mes dates
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNoDatesYet(true);
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  className={`seg-btn ${noDatesYet ? 'seg-btn-active' : ''}`}
+                  title="Je n’ai pas encore de dates"
+                >
+                  Pas de dates
+                </button>
+              </div>
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4">
