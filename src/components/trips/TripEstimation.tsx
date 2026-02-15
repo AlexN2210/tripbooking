@@ -74,6 +74,8 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [tripName, setTripName] = useState('');
   const [lodgingMode, setLodgingMode] = useState<'per_step' | 'global'>('per_step');
+  const [sameCountry, setSameCountry] = useState(true);
+  const [sharedCountry, setSharedCountry] = useState('');
   const [destinations, setDestinations] = useState<Destination[]>([
     {
       id: crypto.randomUUID(),
@@ -178,6 +180,17 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
 
         setDestinations(mapped);
 
+        const uniqueCountries = Array.from(
+          new Set(mapped.map((d) => d.country.trim()).filter(Boolean))
+        );
+        if (uniqueCountries.length === 1) {
+          setSameCountry(true);
+          setSharedCountry(uniqueCountries[0]);
+        } else {
+          setSameCountry(false);
+          setSharedCountry('');
+        }
+
         // Si on a des détails étape, on conserve le mode "par étape", sinon on retombe en global.
         const hasPerStepDetails = mapped.some((d) => d.hasLodging && (toPositiveInt(d.nights, 0) > 0 || parseMoney(d.pricePerNight) > 0));
         setLodgingMode(hasPerStepDetails ? 'per_step' : 'global');
@@ -228,7 +241,7 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
       ...destinations,
       {
         id: crypto.randomUUID(),
-        country: '',
+        country: sameCountry ? sharedCountry : '',
         city: '',
         hasLodging: true,
         nights: '',
@@ -275,11 +288,12 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
   const geocodeDestination = async (id: string) => {
     const dest = destinations.find(d => d.id === id);
     if (!dest) return;
-    if (!dest.city.trim() || !dest.country.trim()) return;
+    const country = (sameCountry ? sharedCountry : dest.country).trim();
+    if (!dest.city.trim() || !country) return;
 
     setDestinations(prev => prev.map(d => (d.id === id ? { ...d, geocoding: 'loading' } : d)));
     try {
-      const geo = await geocodeAddress(dest.city.trim(), dest.country.trim());
+      const geo = await geocodeAddress(dest.city.trim(), country);
       setDestinations(prev =>
         prev.map(d => (d.id === id ? { ...d, ...geo, geocoding: 'ok' } : d))
       );
@@ -319,7 +333,9 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
 
   const validation = useMemo(() => {
     const nameOk = tripName.trim().length > 0;
-    const destinationsOk = destinations.every(d => d.country.trim().length > 0 && d.city.trim().length > 0);
+    const destinationsOk = sameCountry
+      ? sharedCountry.trim().length > 0 && destinations.every(d => d.city.trim().length > 0)
+      : destinations.every(d => d.country.trim().length > 0 && d.city.trim().length > 0);
     const passengersOk = toPositiveInt(passengers, 0) > 0;
     const startDateOk = !startDate || startDate >= todayIsoDate();
     const endDateOk = !endDate || !startDate || endDate >= startDate;
@@ -345,7 +361,16 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
       lodgingOk,
       canSave
     };
-  }, [tripName, destinations, passengers, startDate, endDate, user, lodgingMode, accommodationCost]);
+  }, [tripName, destinations, passengers, startDate, endDate, user, lodgingMode, accommodationCost, sameCountry, sharedCountry]);
+
+  useEffect(() => {
+    if (!sameCountry) return;
+    setDestinations((prev) =>
+      prev.map((d) =>
+        d.country === sharedCountry ? d : { ...d, country: sharedCountry }
+      )
+    );
+  }, [sameCountry, sharedCountry]);
 
   const handleSave = async () => {
     setFormError(null);
@@ -387,7 +412,7 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
       const destinationsWithGeo: Destination[] = [];
 
       for (const d of destinations) {
-        const base: Destination = { ...d };
+        const base: Destination = { ...d, country: sameCountry ? sharedCountry : d.country };
         if (
           canGeocode &&
           base.city.trim() &&
@@ -651,6 +676,47 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
               </button>
             </div>
 
+            <div className="mb-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
+              <p className="text-sm font-semibold text-gray-900">
+                Pays
+              </p>
+              <div className="segmented shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSameCountry(true)}
+                  className={`seg-btn ${sameCountry ? 'seg-btn-active' : ''}`}
+                  title="Un seul pays"
+                >
+                  Un seul pays
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSameCountry(false)}
+                  className={`seg-btn ${!sameCountry ? 'seg-btn-active' : ''}`}
+                  title="Multi-pays"
+                >
+                  Multi-pays
+                </button>
+              </div>
+            </div>
+
+            {sameCountry && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Pays (commun à toutes les étapes) <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={sharedCountry}
+                  onChange={(e) => setSharedCountry(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border-2 border-palm-200 bg-white/70 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
+                  placeholder="Ex: Japon"
+                  required
+                  autoComplete="country-name"
+                />
+              </div>
+            )}
+
             <div className="space-y-3">
               {destinations.map((dest, index) => (
                 <div key={dest.id} className="flex gap-3 items-start min-w-0">
@@ -664,32 +730,38 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
                       </span>
                     </div>
                     <div className="grid sm:grid-cols-2 gap-3">
-                      <input
-                        type="text"
-                        value={dest.country}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setDestinations(prev =>
-                            prev.map(d =>
-                              d.id === dest.id
-                                ? {
-                                    ...d,
-                                    country: next,
-                                    latitude: null,
-                                    longitude: null,
-                                    place_id: null,
-                                    formatted_address: null,
-                                    geocoding: 'idle'
-                                  }
-                                : d
-                            )
-                          );
-                        }}
-                        className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
-                        placeholder={`Pays (étape ${index + 1})`}
-                        required
-                        autoComplete="country-name"
-                      />
+                      {!sameCountry ? (
+                        <input
+                          type="text"
+                          value={dest.country}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setDestinations(prev =>
+                              prev.map(d =>
+                                d.id === dest.id
+                                  ? {
+                                      ...d,
+                                      country: next,
+                                      latitude: null,
+                                      longitude: null,
+                                      place_id: null,
+                                      formatted_address: null,
+                                      geocoding: 'idle'
+                                    }
+                                  : d
+                              )
+                            );
+                          }}
+                          className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
+                          placeholder={`Pays (étape ${index + 1})`}
+                          required
+                          autoComplete="country-name"
+                        />
+                      ) : (
+                        <div className="w-full px-4 py-3 rounded-lg border border-white/55 bg-white/55 text-gray-800 font-semibold">
+                          {sharedCountry?.trim() ? sharedCountry : 'Pays (à renseigner ci-dessus)'}
+                        </div>
+                      )}
                       <input
                         type="text"
                         value={dest.city}
@@ -741,7 +813,7 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
                         disabled={
                           dest.geocoding === 'loading' ||
                           !dest.city.trim() ||
-                          !dest.country.trim()
+                          !(sameCountry ? sharedCountry.trim() : dest.country.trim())
                         }
                         className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-full border border-palm-700 bg-palm-700 hover:bg-palm-800 text-white text-xs font-extrabold tracking-wide transition-all disabled:opacity-45 disabled:cursor-not-allowed"
                         title="Récupérer les coordonnées"
