@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Plus, X, Plane, Hotel, Wallet, Calendar, Users, Save } from 'lucide-react';
 import { ExpenseGauge } from './ExpenseGauge';
-import { SavingsCalculator } from './SavingsCalculator';
+import { TripMap } from './TripMap';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { WaveLoader } from '../ui/Loaders';
+import { loadGoogleMaps } from '../../lib/googleMaps';
+import { FundingPlanner } from './FundingPlanner';
 
 const EUR_FORMATTER = new Intl.NumberFormat('fr-FR', {
   style: 'currency',
@@ -55,6 +57,11 @@ interface Destination {
   hasLodging: boolean;
   nights: string;
   pricePerNight: string;
+  latitude: number | null;
+  longitude: number | null;
+  place_id: string | null;
+  formatted_address: string | null;
+  geocoding: 'idle' | 'loading' | 'ok' | 'error';
 }
 
 interface TripEstimationProps {
@@ -66,13 +73,26 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
   const [tripName, setTripName] = useState('');
   const [lodgingMode, setLodgingMode] = useState<'per_step' | 'global'>('per_step');
   const [destinations, setDestinations] = useState<Destination[]>([
-    { id: crypto.randomUUID(), country: '', city: '', hasLodging: true, nights: '', pricePerNight: '' }
+    {
+      id: crypto.randomUUID(),
+      country: '',
+      city: '',
+      hasLodging: true,
+      nights: '',
+      pricePerNight: '',
+      latitude: null,
+      longitude: null,
+      place_id: null,
+      formatted_address: null,
+      geocoding: 'idle'
+    }
   ]);
   const [flightCost, setFlightCost] = useState('');
   const [passengers, setPassengers] = useState('1');
   const [accommodationCost, setAccommodationCost] = useState('');
   const [additionalExpenses, setAdditionalExpenses] = useState('');
-  const [targetDate, setTargetDate] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -80,7 +100,19 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
   const addDestination = () => {
     setDestinations([
       ...destinations,
-      { id: crypto.randomUUID(), country: '', city: '', hasLodging: true, nights: '', pricePerNight: '' }
+      {
+        id: crypto.randomUUID(),
+        country: '',
+        city: '',
+        hasLodging: true,
+        nights: '',
+        pricePerNight: '',
+        latitude: null,
+        longitude: null,
+        place_id: null,
+        formatted_address: null,
+        geocoding: 'idle'
+      }
     ]);
   };
 
@@ -94,6 +126,41 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
     setDestinations(destinations.map(d =>
       d.id === id ? { ...d, [field]: value } : d
     ));
+  };
+
+  const geocodeAddress = async (city: string, country: string) => {
+    const address = `${city}, ${country}`;
+    const g = await loadGoogleMaps();
+    const geocoder = new g.maps.Geocoder();
+
+    const { results } = await geocoder.geocode({ address });
+    const first = results?.[0];
+    if (!first) throw new Error("Adresse introuvable");
+
+    const loc = first.geometry.location;
+    return {
+      latitude: loc.lat(),
+      longitude: loc.lng(),
+      place_id: first.place_id ?? null,
+      formatted_address: first.formatted_address ?? null
+    };
+  };
+
+  const geocodeDestination = async (id: string) => {
+    const dest = destinations.find(d => d.id === id);
+    if (!dest) return;
+    if (!dest.city.trim() || !dest.country.trim()) return;
+
+    setDestinations(prev => prev.map(d => (d.id === id ? { ...d, geocoding: 'loading' } : d)));
+    try {
+      const geo = await geocodeAddress(dest.city.trim(), dest.country.trim());
+      setDestinations(prev =>
+        prev.map(d => (d.id === id ? { ...d, ...geo, geocoding: 'ok' } : d))
+      );
+    } catch (e) {
+      console.warn('Geocoding failed', e);
+      setDestinations(prev => prev.map(d => (d.id === id ? { ...d, geocoding: 'error' } : d)));
+    }
   };
 
   const { flight, accommodation, additional, numPassengers, totalCost, costPerPerson } = useMemo(() => {
@@ -128,7 +195,8 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
     const nameOk = tripName.trim().length > 0;
     const destinationsOk = destinations.every(d => d.country.trim().length > 0 && d.city.trim().length > 0);
     const passengersOk = toPositiveInt(passengers, 0) > 0;
-    const targetDateOk = !targetDate || targetDate >= todayIsoDate();
+    const startDateOk = !startDate || startDate >= todayIsoDate();
+    const endDateOk = !endDate || !startDate || endDate >= startDate;
 
     const lodgingOk =
       lodgingMode === 'global'
@@ -140,17 +208,18 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
             return nights > 0 && nightly > 0;
           });
 
-    const canSave = Boolean(user) && nameOk && destinationsOk && passengersOk && targetDateOk && lodgingOk;
+    const canSave = Boolean(user) && nameOk && destinationsOk && passengersOk && startDateOk && endDateOk && lodgingOk;
 
     return {
       nameOk,
       destinationsOk,
       passengersOk,
-      targetDateOk,
+      startDateOk,
+      endDateOk,
       lodgingOk,
       canSave
     };
-  }, [tripName, destinations, passengers, targetDate, user, lodgingMode, accommodationCost]);
+  }, [tripName, destinations, passengers, startDate, endDate, user, lodgingMode, accommodationCost]);
 
   const handleSave = async () => {
     setFormError(null);
@@ -170,8 +239,13 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
       return;
     }
 
-    if (!validation.targetDateOk) {
-      setFormError("La date limite doit être aujourd'hui ou une date future.");
+    if (!validation.startDateOk) {
+      setFormError("La date de départ doit être aujourd'hui ou une date future.");
+      return;
+    }
+
+    if (!validation.endDateOk) {
+      setFormError("La date de retour doit être après la date de départ.");
       return;
     }
 
@@ -183,6 +257,31 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
     setSaving(true);
 
     try {
+      const canGeocode = Boolean(import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+      const destinationsWithGeo: Destination[] = [];
+
+      for (const d of destinations) {
+        const base: Destination = { ...d };
+        if (
+          canGeocode &&
+          base.city.trim() &&
+          base.country.trim() &&
+          (base.latitude === null || base.longitude === null)
+        ) {
+          try {
+            const geo = await geocodeAddress(base.city.trim(), base.country.trim());
+            base.latitude = geo.latitude;
+            base.longitude = geo.longitude;
+            base.place_id = geo.place_id;
+            base.formatted_address = geo.formatted_address;
+          } catch (e) {
+            // Non bloquant: on sauvegarde quand même sans coordonnées.
+            console.warn('Geocoding skipped (save)', e);
+          }
+        }
+        destinationsWithGeo.push(base);
+      }
+
       const { data: trip, error: tripError } = await supabase
         .from('trips')
         .insert({
@@ -192,17 +291,24 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
           passengers: numPassengers,
           accommodation_cost: accommodation,
           additional_expenses: additional,
-          target_date: targetDate || null
+          start_date: startDate || null,
+          end_date: endDate || null,
+          // Backward compatibility for older reads:
+          target_date: startDate || null
         })
         .select()
         .single();
 
       if (tripError) throw tripError;
 
-      const destinationsData = destinations.map((d, index) => ({
+      const destinationsData = destinationsWithGeo.map((d, index) => ({
         trip_id: trip.id,
         country: d.country,
         city: d.city,
+        latitude: d.latitude,
+        longitude: d.longitude,
+        place_id: d.place_id,
+        formatted_address: d.formatted_address,
         order_index: index
       }));
 
@@ -378,7 +484,24 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                       <input
                         type="text"
                         value={dest.country}
-                        onChange={(e) => updateDestination(dest.id, 'country', e.target.value)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setDestinations(prev =>
+                            prev.map(d =>
+                              d.id === dest.id
+                                ? {
+                                    ...d,
+                                    country: next,
+                                    latitude: null,
+                                    longitude: null,
+                                    place_id: null,
+                                    formatted_address: null,
+                                    geocoding: 'idle'
+                                  }
+                                : d
+                            )
+                          );
+                        }}
                         className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
                         placeholder={`Pays (étape ${index + 1})`}
                         required
@@ -387,12 +510,65 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                       <input
                         type="text"
                         value={dest.city}
-                        onChange={(e) => updateDestination(dest.id, 'city', e.target.value)}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setDestinations(prev =>
+                            prev.map(d =>
+                              d.id === dest.id
+                                ? {
+                                    ...d,
+                                    city: next,
+                                    latitude: null,
+                                    longitude: null,
+                                    place_id: null,
+                                    formatted_address: null,
+                                    geocoding: 'idle'
+                                  }
+                                : d
+                            )
+                          );
+                        }}
                         className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
                         placeholder="Ville"
                         required
                         autoComplete="address-level2"
                       />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        {dest.latitude !== null && dest.longitude !== null ? (
+                          <p className="text-xs text-palm-800 font-semibold truncate">
+                            Localisé{dest.formatted_address ? ` — ${dest.formatted_address}` : ''}
+                          </p>
+                        ) : dest.geocoding === 'error' ? (
+                          <p className="text-xs text-red-700 font-semibold">
+                            Impossible de localiser cette étape (vérifie la ville/pays).
+                          </p>
+                        ) : (
+                          <p className="text-xs text-gray-600">
+                            Localisation pour afficher la carte
+                          </p>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => geocodeDestination(dest.id)}
+                        disabled={
+                          dest.geocoding === 'loading' ||
+                          !dest.city.trim() ||
+                          !dest.country.trim()
+                        }
+                        className="shrink-0 px-3 py-2 rounded-full border border-white/55 bg-white/55 hover:bg-white/75 text-gray-800 text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Récupérer les coordonnées"
+                      >
+                        {dest.geocoding === 'loading' ? (
+                          <WaveLoader className="scale-75" label="Localisation en cours" />
+                        ) : (
+                          'Localiser'
+                        )}
+                      </button>
                     </div>
 
                     {lodgingMode === 'per_step' && (
@@ -510,15 +686,20 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                   <span>Nombre de passagers</span>
                 </div>
               </label>
-              <input
-                type="number"
+              <select
                 value={passengers}
                 onChange={(e) => setPassengers(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
-                placeholder="1"
-                min="1"
-                step="1"
-              />
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all bg-white/70"
+              >
+                {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-600 mt-1">
+                Pour plus de 12 voyageurs, on peut l’étendre.
+              </p>
             </div>
           </div>
 
@@ -544,30 +725,55 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
           <div className="surface p-5 sm:p-6 animate-slideUp" style={{ animationDelay: '240ms' }}>
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-bold text-gray-900">
-                5. Date cible
+                5. Dates du voyage
               </p>
               <span className="text-xs font-semibold text-sand-900 bg-sand-50 border border-sand-200 px-2 py-1 rounded-full">
                 Planification
               </span>
             </div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <div className="flex items-center space-x-2">
-                <Calendar className="w-4 h-4" />
-                <span>Date limite souhaitée</span>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>Date de départ</span>
+                  </div>
+                </label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
+                  min={todayIsoDate()}
+                />
+                {!validation.startDateOk && (
+                  <p className="text-xs text-red-600 mt-1">
+                    La date de départ doit être future.
+                  </p>
+                )}
               </div>
-            </label>
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
-              min={todayIsoDate()}
-            />
-            {!validation.targetDateOk && (
-              <p className="text-xs text-red-600 mt-1">
-                La date doit être future.
-              </p>
-            )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-4 h-4" />
+                    <span>Date de retour</span>
+                  </div>
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-palm-500 focus:ring-2 focus:ring-palm-500 focus:ring-opacity-20 outline-none transition-all"
+                  min={startDate || todayIsoDate()}
+                />
+                {!validation.endDateOk && (
+                  <p className="text-xs text-red-600 mt-1">
+                    La date de retour doit être après le départ.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -619,10 +825,13 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                   additionalExpenses={additional}
                 />
 
-                {targetDate && (
-                  <SavingsCalculator
+                <TripMap destinations={destinations} />
+
+                {startDate && (
+                  <FundingPlanner
                     totalCost={totalCost}
-                    targetDate={targetDate}
+                    passengers={numPassengers}
+                    departureDate={startDate}
                   />
                 )}
               </div>

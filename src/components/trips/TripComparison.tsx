@@ -51,9 +51,10 @@ export const TripComparison = ({ onBack }: TripComparisonProps) => {
         let monthlyAmount = 0;
         let monthsToTarget = 0;
 
-        if (trip.target_date) {
+        const fundingDeadline = trip.start_date || trip.target_date;
+        if (fundingDeadline) {
           const today = new Date();
-          const target = new Date(trip.target_date);
+          const target = new Date(fundingDeadline);
           const diffTime = target.getTime() - today.getTime();
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           monthsToTarget = Math.max(1, Math.ceil(diffDays / 30));
@@ -221,7 +222,7 @@ export const TripComparison = ({ onBack }: TripComparisonProps) => {
                           <span className="text-gray-600">Coût total</span>
                           <span className="font-semibold text-gray-900">{totalCost.toFixed(2)} €</span>
                         </div>
-                        {trip.target_date && (
+                        {(trip.start_date || trip.target_date) && (
                           <>
                             <div className="flex justify-between text-sm">
                               <span className="text-gray-600">Par mois</span>
@@ -296,9 +297,13 @@ export const TripComparison = ({ onBack }: TripComparisonProps) => {
                               <p className="font-bold text-palm-900">{bestTrip.monthsToTarget} mois</p>
                             </div>
                             <div>
-                              <p className="text-xs text-palm-700 mb-1">Date cible</p>
+                              <p className="text-xs text-palm-700 mb-1">Départ</p>
                               <p className="font-bold text-palm-900">
-                                {bestTrip.target_date ? new Date(bestTrip.target_date).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' }) : 'Non définie'}
+                                {bestTrip.start_date
+                                  ? new Date(bestTrip.start_date).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+                                  : bestTrip.target_date
+                                    ? new Date(bestTrip.target_date).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' })
+                                    : 'Non défini'}
                               </p>
                             </div>
                           </div>

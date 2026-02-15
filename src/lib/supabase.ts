@@ -14,6 +14,8 @@ export interface Trip {
   accommodation_cost: number;
   additional_expenses: number;
   target_date: string | null;
+  start_date: string | null;
+  end_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -24,6 +26,10 @@ export interface TripDestination {
   country: string;
   city: string;
   order_index: number;
+  latitude: number | null;
+  longitude: number | null;
+  place_id: string | null;
+  formatted_address: string | null;
   created_at: string;
 }
 
