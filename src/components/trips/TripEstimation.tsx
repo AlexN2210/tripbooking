@@ -528,7 +528,7 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
   };
 
   return (
-    <div className="animate-fadeUp">
+    <div className="animate-fadeUp overflow-x-hidden">
       <button
         onClick={onBack}
         className="flex items-center text-gray-600 hover:text-gray-900 mb-6 transition-colors group"
@@ -758,7 +758,7 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
                           autoComplete="country-name"
                         />
                       ) : (
-                        <div className="w-full px-4 py-3 rounded-lg border border-white/55 bg-white/55 text-gray-800 font-semibold">
+                        <div className="w-full px-4 py-3 rounded-lg border border-white/55 bg-white/55 text-gray-800 font-semibold whitespace-normal break-words leading-snug">
                           {sharedCountry?.trim() ? sharedCountry : 'Pays (à renseigner ci-dessus)'}
                         </div>
                       )}
@@ -793,7 +793,7 @@ export const TripEstimation = ({ onBack, tripId = null }: TripEstimationProps) =
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         {dest.latitude !== null && dest.longitude !== null ? (
-                          <p className="text-xs text-palm-800 font-semibold truncate">
+                          <p className="text-xs text-palm-800 font-semibold whitespace-normal break-words leading-snug">
                             Localisé{dest.formatted_address ? ` — ${dest.formatted_address}` : ''}
                           </p>
                         ) : dest.geocoding === 'error' ? (

@@ -256,7 +256,7 @@ export function FundingPlanner({ totalCost, passengers, departureDate, onFunding
             step={10}
             value={Math.max(0, Math.min(sliderMax, Math.round(computed.monthlyPerPerson)))}
             onChange={(e) => setMonthlyPerPersonInput(e.target.value)}
-            className="w-full"
+            className="range-da"
             aria-label="Épargne mensuelle par personne"
           />
           <p className="text-xs text-gray-600 mt-1">
