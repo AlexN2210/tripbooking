@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowLeft, Plus, X, Plane, Hotel, Wallet, Calendar, Users, Save } from 'lucide-react';
-import { ExpenseGauge } from './ExpenseGauge';
 import { TripMap } from './TripMap';
+import { ExpenseGauge } from './ExpenseGauge';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { WaveLoader } from '../ui/Loaders';
@@ -380,8 +380,9 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
         </div>
         </div>
 
-        <div className="grid lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 space-y-6">
+        {/* Tablet: 1 colonne. Desktop large: 2 colonnes. */}
+        <div className="grid xl:grid-cols-12 gap-6">
+          <div className="xl:col-span-7 space-y-6">
           {formError && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4">
               <p className="text-red-700 font-medium">{formError}</p>
@@ -760,21 +761,6 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                 Planification
               </span>
             </div>
-            {fundingDateIso && (
-              <div className="mb-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
-                <p className="text-xs text-gray-700">
-                  Départ faisable estimé: <span className="font-bold">{new Date(fundingDateIso).toLocaleDateString('fr-FR')}</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={applyFundingDepartureDate}
-                  className="px-3 py-2 rounded-full border border-white/55 bg-white/60 hover:bg-white/80 text-gray-900 text-xs font-semibold transition-all"
-                  title="Ajuster la date de départ selon votre épargne"
-                >
-                  Partir une fois financé
-                </button>
-              </div>
-            )}
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -818,6 +804,34 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                 )}
               </div>
             </div>
+
+            {/* Module budget/financement au bon endroit (dates) */}
+            {startDate && totalCost > 0 && (
+              <div className="mt-5">
+                <FundingPlanner
+                  totalCost={totalCost}
+                  passengers={numPassengers}
+                  departureDate={startDate}
+                  onFundingUpdate={(info) => setFundingDateIso(info.fundingDateIso)}
+                />
+              </div>
+            )}
+
+            {fundingDateIso && (
+              <div className="mt-4 flex items-center justify-between gap-3 bg-white/60 border border-white/40 rounded-xl p-3">
+                <p className="text-xs text-gray-700">
+                  Départ faisable estimé: <span className="font-bold">{new Date(fundingDateIso).toLocaleDateString('fr-FR')}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={applyFundingDepartureDate}
+                  className="px-3 py-2 rounded-full border border-white/55 bg-white/60 hover:bg-white/80 text-gray-900 text-xs font-semibold transition-all"
+                  title="Ajuster la date de départ selon votre épargne"
+                >
+                  Partir une fois financé
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-3 pt-2">
@@ -838,16 +852,18 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
           </div>
         </div>
 
-        <div className="lg:col-span-5">
-          <div className="surface p-5 sm:p-6 animate-slideUp lg:sticky lg:top-24">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-bold text-gray-900">
-                Résumé
-              </p>
-              <span className="text-xs font-semibold text-palm-800 bg-palm-50 border border-palm-200 px-2 py-1 rounded-full">
-                Live
-              </span>
-            </div>
+        <div className="xl:col-span-5">
+          <details className="surface p-5 sm:p-6 animate-slideUp xl:sticky xl:top-24" open>
+            <summary className="cursor-pointer list-none">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm font-bold text-gray-900">
+                  Résumé
+                </p>
+                <span className="text-xs font-semibold text-palm-800 bg-palm-50 border border-palm-200 px-2 py-1 rounded-full">
+                  Live
+                </span>
+              </div>
+            </summary>
 
             {totalCost > 0 ? (
               <div className="space-y-6">
@@ -870,22 +886,13 @@ export const TripEstimation = ({ onBack }: TripEstimationProps) => {
                 />
 
                 <TripMap destinations={destinations} />
-
-                {startDate && (
-                  <FundingPlanner
-                    totalCost={totalCost}
-                    passengers={numPassengers}
-                    departureDate={startDate}
-                    onFundingUpdate={(info) => setFundingDateIso(info.fundingDateIso)}
-                  />
-                )}
               </div>
             ) : (
               <p className="text-sm text-gray-600">
                 Renseigne quelques montants pour voir le résumé se construire en direct.
               </p>
             )}
-          </div>
+          </details>
         </div>
       </div>
 
